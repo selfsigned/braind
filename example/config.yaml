@@ -1,0 +1,134 @@
+# ─── Global ──────────────────────────────────────
+daemon:
+  socket_dir: "${XDG_RUNTIME_DIR}/braind"
+  protocol: "http+json-over-uds"
+  log_level: "info"
+  pid_file: "${XDG_RUNTIME_DIR}/braind.pid"
+
+logging:
+  path: "${XDG_DATA_HOME}/braind/logs"
+  format: "jsonl"
+  rotate_mb: 10
+  max_files: 10
+
+limits:
+  interactive:
+    max_turns: 6
+    max_tool_calls: 12
+    max_wall_time: "45s"
+  maintenance:
+    max_turns: 10
+    max_tool_calls: 30
+    max_wall_time: "10m"
+
+embeddings:
+  provider: "ollama"
+  model: "nomic-embed-text"
+  dimension: 768
+  metric: "cosine"
+
+llm:
+  # Daytime: small fast model for interactive use
+  default:
+    provider: "ollama"
+    model: "gemma3:4b"
+    base_url: "http://localhost:11434"
+    timeout: "30s"
+    max_tokens: 2048
+
+  # Night/heavy: bigger model for maintenance jobs
+  heavy:
+    provider: "ollama"
+    model: "gemma3:12b"
+    base_url: "http://localhost:11434"
+    timeout: "120s"
+    max_tokens: 4096
+
+# ─── Vaults ──────────────────────────────────────
+vaults:
+  personal:
+    path: "~/braind-vaults/personal"
+
+    git:
+      auto_commit: true
+      commit_name: "braind"
+      commit_email: "braind@localhost"
+
+    changelog:
+      enabled: true
+
+    tools:                       # tools available to the LLM in this vault
+      - name: "journal"          # built-in: write/edit journal entries
+      - name: "todo"             # built-in: manage TODOs in Logseq format
+      - name: "search"           # built-in: semantic search over embeddings
+      - name: "weather"          # extension package
+        config:
+          default_location: "Berlin,DE"
+      - name: "letterboxd"       # extension package
+        config:
+          username: "criterioncel"
+
+    providers:                   # data ingress pipelines
+      - name: "rss"
+        ttl: "14d"
+        config:
+          feeds:
+            - url: "https://n-gate.com/index.atom"
+              tag: "internet"
+            - url: "https://lwn.net/headlines/rss"
+              tag: "linux"
+          poll_interval: "4h"
+      - name: "filesystem"
+        ttl: "30d"
+        config:
+          watch:
+            - path: "~/Documents/notes"
+              tag: "notes-import"
+
+    schedule:                    # cron-like jobs for this vault
+      - name: "daily-journal-prefill"
+        cron: "0 6 * * *"        # 6am: generate today's journal template
+        job: "journal_prefill"
+        model: "default"
+      - name: "todo-reminders"
+        cron: "0 9 * * *"
+        job: "todo_scan"         # scan logseq for DOING/NOW/TODO items
+        model: "default"
+      - name: "provider-ingest"
+        cron: "0 */4 * * *"
+        job: "provider_run"
+      - name: "embedding-compact"
+        cron: "0 3 * * *"        # 3am: compact embeddings
+        job: "embedding_compact"
+      - name: "backlink-maintenance"
+        cron: "0 2 * * *"        # 2am: suggest backlinks, improve graph
+        job: "backlink_review"
+        model: "heavy"
+      - name: "entry-cleanup"
+        cron: "0 4 * * 0"        # sunday 4am: improve recent entries
+        job: "entry_review"
+        model: "heavy"
+
+  work:
+    path: "~/braind-vaults/work"
+
+    git:
+      auto_commit: true
+      commit_name: "braind"
+      commit_email: "braind@localhost"
+
+    changelog:
+      enabled: true
+
+    tools:
+      - name: "journal"
+      - name: "todo"
+      - name: "search"
+
+    providers: []
+
+    schedule:
+      - name: "daily-journal-prefill"
+        cron: "0 8 * * 1-5"      # weekdays 8am
+        job: "journal_prefill"
+        model: "default"
